@@ -42,49 +42,22 @@ void DestroyDebugUtilsMessengerExt(
 	}
 }
 
-struct QueueFamilyIndices
+VKAPI_ATTR VkBool32 VKAPI_CALL DebugCallback(
+	VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
+	VkDebugUtilsMessageTypeFlagsEXT messageType,
+	const VkDebugUtilsMessengerCallbackDataEXT* pCallbackDataExt,
+	void* pUserData)
 {
-	std::optional<uint32_t> graphicsFamily;
+	std::cerr << "Validation layer info -> " << pCallbackDataExt->pMessage << std::endl;
 
-	[[nodiscard]] constexpr bool IsComplete() const
-	{
-		return graphicsFamily.has_value();
-	}
-};
-
-QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device)
-{
-	QueueFamilyIndices indices;
-	uint32_t queueFamilyCount = 0;
-	vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, nullptr);
-
-	std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
-	vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, queueFamilies.data());
-
-	auto i = 0;
-	for (const auto& queueFamily : queueFamilies)
-	{
-		if (queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT)
-		{
-			indices.graphicsFamily = i;
-		}
-
-		if (indices.IsComplete())
-		{
-			break;
-		}
-
-		++i;
-	}
-
-	return indices;
+	return VK_FALSE;
 }
 	
 }
 
-// ReSharper disable once CppPossiblyUninitializedMember
-VulkanApplication::VulkanApplication(const uint32_t width, const uint32_t height)  // NOLINT(cppcoreguidelines-pro-type-member-init, hicpp-member-init)
-	: m_width(width), m_height(height), m_physicalDevice(nullptr)
+VulkanApplication::VulkanApplication(const uint32_t width, const uint32_t height)
+	:
+	m_width(width), m_height(height)
 {
 	glfwInit();
 
@@ -100,7 +73,8 @@ VulkanApplication::~VulkanApplication()
 	{
 		DestroyDebugUtilsMessengerExt(m_instance, m_debugUtilsMessenger, nullptr);
 	}
-	
+
+	vkDestroySurfaceKHR(m_instance, m_surface, nullptr);
 	vkDestroyInstance(m_instance, nullptr);
 	
 	glfwDestroyWindow(m_pWindow);
@@ -113,6 +87,7 @@ void VulkanApplication::InitInstance()
 {
 	CreateInstance();
 	SetupDebugMessenger();
+	CreateSurface();
 	PickPhysicalDevice();
 	CreateLogicalDevice();
 }
@@ -173,7 +148,6 @@ void VulkanApplication::CreateInstance()
 	}
 }
 
-
 void VulkanApplication::PopulateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT& createInfo)
 {
 	createInfo =
@@ -201,6 +175,14 @@ void VulkanApplication::SetupDebugMessenger()
 	}
 }
 
+void VulkanApplication::CreateSurface()
+{
+	if(glfwCreateWindowSurface(m_instance, m_pWindow, nullptr, &m_surface) != VK_SUCCESS)
+	{
+		throw std::runtime_error("Failed to create window surface!");
+	}
+}
+
 void VulkanApplication::PickPhysicalDevice()
 {
 	uint32_t deviceCount = 0;
@@ -214,15 +196,9 @@ void VulkanApplication::PickPhysicalDevice()
 	std::vector<VkPhysicalDevice> devices(deviceCount);
 	vkEnumeratePhysicalDevices(m_instance, &deviceCount, devices.data());
 
-	// ReSharper disable once CppParameterMayBeConst
-	const auto isDeviceSuitable = [](VkPhysicalDevice device) -> bool
-	{
-		return findQueueFamilies(device).IsComplete();
-	};
-	
 	for(const auto& device : devices)
 	{
-		if(isDeviceSuitable(device))
+		if(FindQueueFamilies(device).IsComplete())
 		{
 			m_physicalDevice = device;
 			break;
@@ -237,7 +213,7 @@ void VulkanApplication::PickPhysicalDevice()
 
 void VulkanApplication::CreateLogicalDevice()
 {
-	auto indices = findQueueFamilies(m_physicalDevice);
+	auto indices = FindQueueFamilies(m_physicalDevice);
 
 	auto queuePriority = 1.0f;
 	VkDeviceQueueCreateInfo queueCreateInfo =
@@ -277,6 +253,7 @@ void VulkanApplication::CreateLogicalDevice()
 	}
 
 	vkGetDeviceQueue(m_device, indices.graphicsFamily.value(), 0, &m_graphicsQueue);
+	vkGetDeviceQueue(m_device, indices.presentFamily.value(), 0, &m_presentQueue);
 }
 
 std::vector<const char*> VulkanApplication::GetRequiredExtensions()
@@ -313,11 +290,39 @@ bool VulkanApplication::CheckValidationLayerSupport()
 	return false;
 }
 
-VkBool32 VulkanApplication::DebugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
-	VkDebugUtilsMessageTypeFlagsEXT messageType, const VkDebugUtilsMessengerCallbackDataEXT* pCallbackDataExt,
-	void* pUserData)
+// ReSharper disable once CppParameterMayBeConst
+VulkanApplication::QueueFamilyIndices VulkanApplication::FindQueueFamilies(VkPhysicalDevice device) const
 {
-	std::cerr << "Validation layer info -> " << pCallbackDataExt->pMessage << std::endl;
+	QueueFamilyIndices indices;
+	uint32_t queueFamilyCount = 0;
+	vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, nullptr);
 
-	return VK_FALSE;
+	std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
+	vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, queueFamilies.data());
+
+	auto i = 0;
+	for (const auto& queueFamily : queueFamilies)
+	{
+		if (queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT)
+		{
+			indices.graphicsFamily = i;
+		}
+
+		VkBool32 presentSupport = false;
+		vkGetPhysicalDeviceSurfaceSupportKHR(device, i, m_surface, &presentSupport);
+
+		if(presentSupport)
+		{
+			indices.presentFamily = i;
+		}
+
+		if (indices.IsComplete())
+		{
+			break;
+		}
+
+		++i;
+	}
+
+	return indices;
 }

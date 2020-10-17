@@ -15,7 +15,7 @@ int main()
     
 
 
-
+    _CrtCheckMemory();
 	
     return 0;
 }

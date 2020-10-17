@@ -19,29 +19,40 @@ public:
 	void Run() const;
 
 private:
+	struct QueueFamilyIndices
+	{
+		std::optional<uint32_t> graphicsFamily;
+		std::optional<uint32_t> presentFamily;
+
+		[[nodiscard]] constexpr bool IsComplete() const
+		{
+			return graphicsFamily.has_value() && presentFamily.has_value();
+		}
+	};
+	
 	void CreateInstance();
 	static void PopulateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT& createInfo);
 	void SetupDebugMessenger();
+	void CreateSurface();
 	void PickPhysicalDevice();
 	void CreateLogicalDevice();
 	
 	static std::vector<const char*> GetRequiredExtensions();
 	[[nodiscard]] static bool CheckValidationLayerSupport();
-	static VKAPI_ATTR VkBool32 VKAPI_CALL DebugCallback(
-		VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
-		VkDebugUtilsMessageTypeFlagsEXT messageType,
-		const VkDebugUtilsMessengerCallbackDataEXT* pCallbackDataExt,
-		void* pUserData);
-
+	QueueFamilyIndices FindQueueFamilies(VkPhysicalDevice device) const;
 	
 	uint32_t m_width;
 	uint32_t m_height;
-	
 	GLFWwindow* m_pWindow;
-	VkInstance m_instance;
-	VkDebugUtilsMessengerEXT m_debugUtilsMessenger;
-	VkPhysicalDevice m_physicalDevice;
-	VkDevice m_device;
-	VkQueue m_graphicsQueue;
+	
+	VkInstance m_instance{};
+	VkDebugUtilsMessengerEXT m_debugUtilsMessenger{};
+	VkSurfaceKHR m_surface{};
+	
+	VkPhysicalDevice m_physicalDevice{};
+	VkDevice m_device{};
+	
+	VkQueue m_graphicsQueue{};
+	VkQueue m_presentQueue{};
 };
 
