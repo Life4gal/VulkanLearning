@@ -8,7 +8,12 @@ namespace
 	constexpr bool EnableValidationLayers = true;
 #endif
 
-const char* g_validationLayers = "VK_LAYER_KHRONOS_validation";
+const std::vector<const char*> ValidationLayers = {
+	"VK_LAYER_KHRONOS_validation"
+};
+const std::vector<const char*> DeviceExtensions = {
+	VK_KHR_SWAPCHAIN_EXTENSION_NAME
+};
 
 VkResult CreateDebugUtilsMessengerExt(
 	// ReSharper disable once CppParameterMayBeConst
@@ -69,6 +74,9 @@ VulkanApplication::VulkanApplication(const uint32_t width, const uint32_t height
 
 VulkanApplication::~VulkanApplication()
 {
+	vkDestroySwapchainKHR(m_device, m_swapChain, nullptr);
+	vkDestroyDevice(m_device, nullptr);
+	
 	if(EnableValidationLayers)
 	{
 		DestroyDebugUtilsMessengerExt(m_instance, m_debugUtilsMessenger, nullptr);
@@ -90,6 +98,7 @@ void VulkanApplication::InitInstance()
 	CreateSurface();
 	PickPhysicalDevice();
 	CreateLogicalDevice();
+	CreateSwapChain();
 }
 
 void VulkanApplication::Run() const
@@ -134,8 +143,8 @@ void VulkanApplication::CreateInstance()
 	
 	if(EnableValidationLayers)
 	{
-		createInfo.enabledLayerCount = 1;
-		createInfo.ppEnabledLayerNames = &g_validationLayers;
+		createInfo.enabledLayerCount = static_cast<uint32_t>(ValidationLayers.size());
+		createInfo.ppEnabledLayerNames = ValidationLayers.data();
 
 		VkDebugUtilsMessengerCreateInfoEXT debugCreateInfo;
 		PopulateDebugMessengerCreateInfo(debugCreateInfo);
@@ -214,17 +223,28 @@ void VulkanApplication::PickPhysicalDevice()
 void VulkanApplication::CreateLogicalDevice()
 {
 	auto indices = FindQueueFamilies(m_physicalDevice);
+	
+	std::set<uint32_t> uniqueQueueFamilies =
+	{
+		indices.graphicsFamily.value(),
+		indices.presentFamily.value()
+	};
+	
+	std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
 
 	auto queuePriority = 1.0f;
-	VkDeviceQueueCreateInfo queueCreateInfo =
+	for(auto queueFamily : uniqueQueueFamilies)
 	{
-		VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
-		nullptr,
-		0,
-		indices.graphicsFamily.value(),
-		1,
-		&queuePriority
-	};
+		queueCreateInfos.emplace_back(VkDeviceQueueCreateInfo{
+			VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+			nullptr,
+			0,
+			queueFamily,
+			1,
+			&queuePriority
+		}
+		);
+	}
 
 	VkPhysicalDeviceFeatures deviceFeatures{};
 	VkDeviceCreateInfo createInfo =
@@ -232,19 +252,19 @@ void VulkanApplication::CreateLogicalDevice()
 		VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
 		nullptr,
 		0,
-		1,
-		&queueCreateInfo,
+		static_cast<uint32_t>(queueCreateInfos.size()),
+		queueCreateInfos.data(),
 		0,
 		nullptr,
-		0,
-		nullptr,
+		static_cast<uint32_t>(DeviceExtensions.size()),
+		DeviceExtensions.data(),
 		&deviceFeatures
 	};
 
 	if(EnableValidationLayers)
 	{
-		createInfo.enabledLayerCount = 1;
-		createInfo.ppEnabledLayerNames = &g_validationLayers;
+		createInfo.enabledLayerCount = static_cast<uint32_t>(ValidationLayers.size());
+		createInfo.ppEnabledLayerNames = ValidationLayers.data();
 	}
 
 	if(vkCreateDevice(m_physicalDevice, &createInfo, nullptr, &m_device) != VK_SUCCESS)
@@ -254,6 +274,67 @@ void VulkanApplication::CreateLogicalDevice()
 
 	vkGetDeviceQueue(m_device, indices.graphicsFamily.value(), 0, &m_graphicsQueue);
 	vkGetDeviceQueue(m_device, indices.presentFamily.value(), 0, &m_presentQueue);
+}
+
+
+void VulkanApplication::CreateSwapChain()
+{
+	const auto swapChainSupport = QuerySwapChainSupport(m_physicalDevice);
+
+	const auto surfaceFormat = ChooseSwapSurfaceFormat(swapChainSupport.formats);
+	const auto presentMode = ChooseSwapChainMode(swapChainSupport.presentModes);
+	const auto extent = ChooseSwapExtent(swapChainSupport.capabilities);
+
+	auto imageCount = swapChainSupport.capabilities.minImageCount + 1;
+	if(swapChainSupport.capabilities.maxImageCount > 0 && imageCount > swapChainSupport.capabilities.maxImageCount)
+	{
+		imageCount = swapChainSupport.capabilities.maxImageCount;
+	}
+
+	VkSwapchainCreateInfoKHR createInfo =
+	{
+		VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
+		nullptr,
+		0,
+		m_surface,
+		imageCount,
+		surfaceFormat.format,
+		surfaceFormat.colorSpace,
+		extent,
+		1,
+		VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+		VK_SHARING_MODE_EXCLUSIVE,
+		0,
+		nullptr,
+		swapChainSupport.capabilities.currentTransform,
+		VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
+		presentMode,
+		VK_TRUE,
+		nullptr
+	};
+
+	auto indices = FindQueueFamilies(m_physicalDevice);
+	
+	if(indices.graphicsFamily != indices.presentFamily)
+	{
+		uint32_t queueFamilyIndices[] = { indices.graphicsFamily.value(), indices.presentFamily.value() };
+		
+		createInfo.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
+		createInfo.queueFamilyIndexCount = 2;
+		createInfo.pQueueFamilyIndices = queueFamilyIndices;
+	}
+
+	if(vkCreateSwapchainKHR(m_device, &createInfo, nullptr, &m_swapChain) != VK_SUCCESS)
+	{
+		throw std::runtime_error("Failed to create swap chain!");
+	}
+
+	vkGetSwapchainImagesKHR(m_device, m_swapChain, &imageCount, nullptr);
+	m_swapChainImages.resize(imageCount);
+	vkGetSwapchainImagesKHR(m_device, m_swapChain, &imageCount, m_swapChainImages.data());
+
+	m_swapChainImageFormat = surfaceFormat.format;
+	m_swapChainExtent = extent;
 }
 
 std::vector<const char*> VulkanApplication::GetRequiredExtensions()
@@ -279,15 +360,38 @@ bool VulkanApplication::CheckValidationLayerSupport()
 	std::vector<VkLayerProperties> availableLayers(layerCount);
 	vkEnumerateInstanceLayerProperties(&layerCount, availableLayers.data());
 
-	for(const auto& properties : availableLayers)
+	for (const auto layerName : ValidationLayers)
 	{
-		if(strcmp(properties.layerName, g_validationLayers) == 0)
+		for(const auto& layerProperties : availableLayers)
 		{
-			return true;
+			if(strcmp(layerName, layerProperties.layerName) == 0)
+			{
+				return true;
+			}
 		}
 	}
 	
 	return false;
+}
+
+// ReSharper disable once CppParameterMayBeConst
+bool VulkanApplication::CheckDeviceExtensionSupport(VkPhysicalDevice device)
+{
+	uint32_t extensionCount;
+	vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, nullptr);
+
+	std::vector<VkExtensionProperties> availableExtensions(extensionCount);
+
+	vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, availableExtensions.data());
+
+	std::set<std::string> requiredExtensions(DeviceExtensions.begin(), DeviceExtensions.end());
+
+	for(const auto& extension : availableExtensions)
+	{
+		requiredExtensions.erase(extension.extensionName);
+	}
+
+	return requiredExtensions.empty();
 }
 
 // ReSharper disable once CppParameterMayBeConst
@@ -325,4 +429,87 @@ VulkanApplication::QueueFamilyIndices VulkanApplication::FindQueueFamilies(VkPhy
 	}
 
 	return indices;
+}
+
+VulkanApplication::SwapChainSupportDetails VulkanApplication::QuerySwapChainSupport(VkPhysicalDevice device) const
+{
+	SwapChainSupportDetails details;
+
+	vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, m_surface, &details.capabilities);
+
+	uint32_t formatCount;
+
+	vkGetPhysicalDeviceSurfaceFormatsKHR(device, m_surface, &formatCount, nullptr);
+
+	if (formatCount != 0)
+	{
+		details.formats.resize(formatCount);
+		vkGetPhysicalDeviceSurfaceFormatsKHR(device, m_surface, &formatCount, details.formats.data());
+	}
+
+	uint32_t presentModeCount;
+
+	vkGetPhysicalDeviceSurfacePresentModesKHR(device, m_surface, &presentModeCount, nullptr);
+
+	if(presentModeCount != 0)
+	{
+		details.presentModes.resize(presentModeCount);
+		vkGetPhysicalDeviceSurfacePresentModesKHR(device, m_surface, &presentModeCount, details.presentModes.data());
+	}
+
+	return details;
+}
+
+VkSurfaceFormatKHR VulkanApplication::ChooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& availableFormats)
+{
+	for (const auto& availableFormat : availableFormats)
+	{
+		if(availableFormat.format == VK_FORMAT_B8G8R8A8_SRGB && availableFormat.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
+		{
+			return availableFormat;
+		}
+	}
+
+	return availableFormats[0];
+}
+
+VkPresentModeKHR VulkanApplication::ChooseSwapChainMode(const std::vector<VkPresentModeKHR>& availablePresentModes)
+{
+	for (const auto& availablePresentMode : availablePresentModes)
+	{
+		if(availablePresentMode == VK_PRESENT_MODE_MAILBOX_KHR)
+		{
+			return availablePresentMode;
+		}
+	}
+
+	return VK_PRESENT_MODE_FIFO_KHR;
+}
+
+VkExtent2D VulkanApplication::ChooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities) const
+{
+	if(capabilities.currentExtent.width != UINT32_MAX)
+	{
+		return capabilities.currentExtent;
+	}
+
+	return {
+		std::clamp(m_width, capabilities.minImageExtent.width, capabilities.maxImageExtent.width),
+		std::clamp(m_height, capabilities.minImageExtent.height, capabilities.maxImageExtent.height)
+	};
+}
+
+// ReSharper disable once CppParameterMayBeConst
+bool VulkanApplication::IsDeviceSuitable(VkPhysicalDevice device) const
+{
+	const auto indices = FindQueueFamilies(device);
+
+
+	if (indices.IsComplete() && CheckDeviceExtensionSupport(device))
+	{
+		const auto swapChainSupport = QuerySwapChainSupport(device);
+		return !swapChainSupport.formats.empty() && !swapChainSupport.presentModes.empty();
+	}
+
+	return false;
 }

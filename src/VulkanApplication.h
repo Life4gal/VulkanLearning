@@ -7,6 +7,8 @@
 #include <string>
 #include <iostream>
 #include <optional>
+#include <set>
+#include <algorithm>
 
 class VulkanApplication
 {
@@ -29,6 +31,13 @@ private:
 			return graphicsFamily.has_value() && presentFamily.has_value();
 		}
 	};
+
+	struct SwapChainSupportDetails
+	{
+		VkSurfaceCapabilitiesKHR capabilities{};
+		std::vector<VkSurfaceFormatKHR> formats;
+		std::vector<VkPresentModeKHR> presentModes;
+	};
 	
 	void CreateInstance();
 	static void PopulateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT& createInfo);
@@ -36,10 +45,17 @@ private:
 	void CreateSurface();
 	void PickPhysicalDevice();
 	void CreateLogicalDevice();
+	void CreateSwapChain();
 	
 	static std::vector<const char*> GetRequiredExtensions();
 	[[nodiscard]] static bool CheckValidationLayerSupport();
+	[[nodiscard]] static bool CheckDeviceExtensionSupport(VkPhysicalDevice device);
 	QueueFamilyIndices FindQueueFamilies(VkPhysicalDevice device) const;
+	SwapChainSupportDetails QuerySwapChainSupport(VkPhysicalDevice device) const;
+	static VkSurfaceFormatKHR ChooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& availableFormats);
+	static VkPresentModeKHR ChooseSwapChainMode(const std::vector<VkPresentModeKHR>& availablePresentModes);
+	[[nodiscard]] VkExtent2D ChooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities) const;
+	[[nodiscard]] bool IsDeviceSuitable(VkPhysicalDevice device) const;
 	
 	uint32_t m_width;
 	uint32_t m_height;
@@ -54,5 +70,10 @@ private:
 	
 	VkQueue m_graphicsQueue{};
 	VkQueue m_presentQueue{};
+
+	VkSwapchainKHR m_swapChain{};
+	std::vector<VkImage> m_swapChainImages{};
+	VkFormat m_swapChainImageFormat{};
+	VkExtent2D m_swapChainExtent{};
 };
 
