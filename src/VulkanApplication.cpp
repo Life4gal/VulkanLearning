@@ -99,6 +99,7 @@ void VulkanApplication::InitInstance()
 	PickPhysicalDevice();
 	CreateLogicalDevice();
 	CreateSwapChain();
+	CreateImageViews();
 }
 
 void VulkanApplication::Run() const
@@ -335,6 +336,42 @@ void VulkanApplication::CreateSwapChain()
 
 	m_swapChainImageFormat = surfaceFormat.format;
 	m_swapChainExtent = extent;
+}
+
+void VulkanApplication::CreateImageViews()
+{
+	swapChainImageViews.resize(m_swapChainImages.size());
+
+	for(size_t i = 0; i < m_swapChainImages.size(); ++i)
+	{
+		VkImageViewCreateInfo createInfo =
+		{
+			VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+			nullptr,
+			0,
+			m_swapChainImages[i],
+			VK_IMAGE_VIEW_TYPE_2D,
+			m_swapChainImageFormat,
+			{
+				VK_COMPONENT_SWIZZLE_IDENTITY,
+				VK_COMPONENT_SWIZZLE_IDENTITY,
+				VK_COMPONENT_SWIZZLE_IDENTITY,
+				VK_COMPONENT_SWIZZLE_IDENTITY
+			},
+			{
+				VK_IMAGE_ASPECT_COLOR_BIT,
+				0,
+				1,
+				0,
+				1
+			}
+		};
+
+		if(vkCreateImageView(m_device, &createInfo, nullptr, &swapChainImageViews[i]) != VK_SUCCESS)
+		{
+			throw std::runtime_error("Failed to create image views!");
+		}
+	}
 }
 
 std::vector<const char*> VulkanApplication::GetRequiredExtensions()

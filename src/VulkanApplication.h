@@ -46,6 +46,7 @@ private:
 	void PickPhysicalDevice();
 	void CreateLogicalDevice();
 	void CreateSwapChain();
+	void CreateImageViews();
 	
 	static std::vector<const char*> GetRequiredExtensions();
 	[[nodiscard]] static bool CheckValidationLayerSupport();
@@ -73,6 +74,7 @@ private:
 
 	VkSwapchainKHR m_swapChain{};
 	std::vector<VkImage> m_swapChainImages{};
+	std::vector<VkImageView> swapChainImageViews;
 	VkFormat m_swapChainImageFormat{};
 	VkExtent2D m_swapChainExtent{};
 };
